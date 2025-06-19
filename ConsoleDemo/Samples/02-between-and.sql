@@ -1,0 +1,1 @@
+select * from t where price between  10 and 20;

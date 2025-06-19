@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>netstandard2.1</TargetFramework>
+        <Nullable>enable</Nullable>
+        <AssemblyName>CnSharp.TSqlFormatter</AssemblyName>
+        <RootNamespace>CnSharp.Sql</RootNamespace>
+        <Version>1.0.0-beta1</Version>
+        <Authors>CnSharp</Authors>
+        <Copyright>Copyright © CnSharp 2025</Copyright>
+        <PackageProjectUrl>https://github.com/sqlsharper/TSql-Formatter</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/sqlsharper/TSql-Formatter.git</RepositoryUrl>
+        <PackageTags>T-SQL Formatter</PackageTags>
+        <PackageReleaseNotes>init</PackageReleaseNotes>
+        <PackageIcon>CnSharp-icon-256x256.png</PackageIcon>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="TSQL.Parser" Version="2.6.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Include="..\assets\CnSharp-icon-256x256.png">
+        <Pack>True</Pack>
+        <PackagePath></PackagePath>
+        <Link>CnSharp-icon-256x256.png</Link>
+      </None>
+    </ItemGroup>
+
+</Project>

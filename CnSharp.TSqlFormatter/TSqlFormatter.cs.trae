@@ -1,0 +1,364 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using TSQL;
+using TSQL.Tokens;
+
+namespace CnSharp.Sql
+{
+    public class TSqlFormatter
+    {
+        private class FormatOptions
+        {
+            public string IndentString { get; set; } = "    ";
+            public bool UppercaseKeywords { get; set; } = true;
+            // Add more options as needed, e.g., NewLineBeforeComma, SpaceAfterComma, etc.
+        }
+
+        private readonly FormatOptions _options;
+        private StringBuilder _result;
+        private int _indentLevel;
+        private TSQLToken _previousToken;
+
+        public TSqlFormatter()
+        {
+            _options = new FormatOptions();
+        }
+
+        public TSqlFormatter(Action<FormatOptions> configureOptions)
+        {
+            _options = new FormatOptions();
+            configureOptions?.Invoke(_options);
+        }
+
+        public string Format(string sql)
+        {
+            if (string.IsNullOrWhiteSpace(sql))
+                return string.Empty;
+
+            _result = new StringBuilder();
+            _indentLevel = 0;
+            _previousToken = null;
+
+            var tokenizer = new TSQLTokenizer(sql);
+            var tokens = tokenizer.Tokenize().ToList();
+
+            for (int i = 0; i < tokens.Count; i++)
+            {
+                var currentToken = tokens[i];
+                var nextToken = (i + 1 < tokens.Count) ? tokens[i + 1] : null;
+
+                ProcessToken(currentToken, nextToken);
+                _previousToken = currentToken;
+            }
+
+            return _result.ToString().Trim();
+        }
+
+        private void ProcessToken(TSQLToken token, TSQLToken nextToken)
+        {
+            switch (token.Type)
+            {
+                case TSQLTokenType.Keyword:
+                    FormatKeyword(token, nextToken);
+                    break;
+                case TSQLTokenType.Identifier:
+                case TSQLTokenType.Variable:
+                case TSQLTokenType.SystemIdentifier:
+                    _result.Append(token.Text);
+                    AppendSpaceIfNeeded(nextToken);
+                    break;
+                case TSQLTokenType.Operator:
+                    FormatOperator(token, nextToken);
+                    break;
+                case TSQLTokenType.Comma:
+                    RemoveTrailingSpace();
+                    _result.Append(",");
+                    AppendLine();
+                    AppendIndent();
+                    break;
+                case TSQLTokenType.Semicolon:
+                    RemoveTrailingSpace();
+                    _result.Append(";");
+                    AppendLine(); 
+                    break;
+                case TSQLTokenType.OpenParenthesis:
+                    _result.Append("(");
+                    _indentLevel++;
+                    // Optional: Add newline after parenthesis if it's a subquery start
+                    if (IsSubqueryStart(nextToken))
+                    {
+                        AppendLine();
+                        AppendIndent();
+                    }
+                    break;
+                case TSQLTokenType.CloseParenthesis:
+                    RemoveTrailingSpace();
+                    _indentLevel--;
+                     // Optional: Add newline before closing parenthesis if it was a subquery
+                    if (_previousToken != null && _previousToken.Type != TSQLTokenType.OpenParenthesis && _result.ToString().EndsWith(_options.IndentString))
+                    {
+                        RemoveTrailingIndent();
+                        AppendLine();
+                        AppendIndent(); 
+                    }
+                    _result.Append(")");
+                    AppendSpaceIfNeeded(nextToken);
+                    break;
+                case TSQLTokenType.Comment:
+                    FormatComment(token.Text);
+                    break;
+                case TSQLTokenType.WhiteSpace:
+                    // Generally ignore whitespace tokens as we are reformatting
+                    // However, preserve a single space if it's meaningful (e.g. between keyword and identifier)
+                    if (_previousToken != null && 
+                        !IsSpecialCharacter(_previousToken) && 
+                        nextToken != null && 
+                        !IsSpecialCharacter(nextToken) && 
+                        !_result.ToString().EndsWith(" ") && 
+                        !_result.ToString().EndsWith("\n") &&
+                        !_result.ToString().EndsWith(_options.IndentString))
+                    {
+                        _result.Append(" ");
+                    }
+                    break;
+                case TSQLTokenType.Number:
+                case TSQLTokenType.StringLiteral:
+                case TSQLTokenType.BinaryLiteral:
+                case TSQLTokenType.MoneyLiteral:
+                    _result.Append(token.Text);
+                    AppendSpaceIfNeeded(nextToken);
+                    break;
+                default:
+                    _result.Append(token.Text);
+                    AppendSpaceIfNeeded(nextToken);
+                    break;
+            }
+        }
+        
+        private bool IsSpecialCharacter(TSQLToken token)
+        {
+            return token.Type == TSQLTokenType.OpenParenthesis || 
+                   token.Type == TSQLTokenType.CloseParenthesis || 
+                   token.Type == TSQLTokenType.Comma || 
+                   token.Type == TSQLTokenType.Semicolon ||
+                   token.Type == TSQLTokenType.Operator;
+        }
+
+        private bool IsSubqueryStart(TSQLToken nextToken)
+        {
+            // Heuristic: if next token after '(' is SELECT, it's likely a subquery
+            return nextToken != null && nextToken.Type == TSQLTokenType.Keyword && nextToken.Text.Equals("SELECT", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void FormatKeyword(TSQLToken token, TSQLToken nextToken)
+        {
+            string keyword = _options.UppercaseKeywords ? token.Text.ToUpper() : token.Text;
+
+            switch (keyword)
+            {
+                case "SELECT":
+                case "UPDATE":
+                case "DELETE":
+                case "INSERT":
+                case "VALUES": // For INSERT INTO ... VALUES
+                    EnsureNewLineAndIndent();
+                    _result.Append(keyword);
+                    AppendLine();
+                    AppendIndent();
+                    break;
+                case "FROM":
+                case "WHERE":
+                case "SET": // For UPDATE ... SET
+                case "GROUP BY":
+                case "HAVING":
+                case "ORDER BY":
+                case "UNION":
+                case "UNION ALL":
+                case "EXCEPT":
+                case "INTERSECT":
+                    EnsureNewLineAndIndent();
+                    _result.Append(keyword);
+                    AppendSpaceIfNeeded(nextToken);
+                    if (nextToken != null && (nextToken.Type == TSQLTokenType.Identifier || nextToken.Type == TSQLTokenType.OpenParenthesis || nextToken.Type == TSQLTokenType.Keyword && !IsJoinKeyword(nextToken.Text.ToUpper())))
+                    {
+                         AppendLine();
+                         AppendIndent();
+                    }
+                    break;
+                case "JOIN":
+                case "INNER JOIN":
+                case "LEFT JOIN":
+                case "LEFT OUTER JOIN":
+                case "RIGHT JOIN":
+                case "RIGHT OUTER JOIN":
+                case "FULL JOIN":
+                case "FULL OUTER JOIN":
+                case "CROSS JOIN":
+                    EnsureNewLineAndIndent();
+                    _result.Append(keyword).Append(" ");
+                    break;
+                case "ON":
+                case "AND":
+                case "OR":
+                    // Handle AND/OR in WHERE or ON clauses differently
+                    if (_previousToken != null && (_previousToken.Type == TSQLTokenType.Keyword && (_previousToken.Text.Equals("WHERE", StringComparison.OrdinalIgnoreCase) || _previousToken.Text.Equals("ON", StringComparison.OrdinalIgnoreCase))))
+                    {
+                        // Already indented by WHERE/ON
+                    }
+                    else if (_previousToken != null && _previousToken.Type != TSQLTokenType.OpenParenthesis)
+                    {
+                         AppendLine();
+                         AppendIndent();
+                    }
+                    _result.Append(keyword).Append(" ");
+                    break;
+                case "AS":
+                     _result.Append(" ").Append(keyword).Append(" ");
+                     break;
+                case "CASE":
+                    _result.Append(keyword).Append(" ");
+                    _indentLevel++;
+                    break;
+                case "WHEN":
+                case "THEN":
+                case "ELSE":
+                    AppendLine();
+                    AppendIndent();
+                    _result.Append(keyword).Append(" ");
+                    break;
+                case "END": // Could be END of CASE or block
+                    _indentLevel--;
+                    AppendLine();
+                    AppendIndent();
+                    _result.Append(keyword);
+                    AppendSpaceIfNeeded(nextToken);
+                    break;
+                default:
+                    _result.Append(keyword);
+                    AppendSpaceIfNeeded(nextToken);
+                    break;
+            }
+        }
+
+        private bool IsJoinKeyword(string keyword)
+        {
+            return keyword == "JOIN" || keyword == "INNER JOIN" || keyword == "LEFT JOIN" || keyword == "LEFT OUTER JOIN" ||
+                   keyword == "RIGHT JOIN" || keyword == "RIGHT OUTER JOIN" || keyword == "FULL JOIN" || keyword == "FULL OUTER JOIN" ||
+                   keyword == "CROSS JOIN";
+        }
+
+        private void FormatOperator(TSQLToken token, TSQLToken nextToken)
+        {
+            // Ensure space before operator unless previous was '('
+            if (_previousToken != null && _previousToken.Type != TSQLTokenType.OpenParenthesis && !_result.ToString().EndsWith(" ") && !_result.ToString().EndsWith(_options.IndentString))
+            {
+                _result.Append(" ");
+            }
+            _result.Append(token.Text);
+            // Ensure space after operator unless next is ')' or ';'
+            if (nextToken != null && nextToken.Type != TSQLTokenType.CloseParenthesis && nextToken.Type != TSQLTokenType.Semicolon)
+            {
+                _result.Append(" ");
+            }
+        }
+
+        private void FormatComment(string comment)
+        {
+            EnsureNewLineAndIndent();
+            if (comment.StartsWith("--"))
+            {
+                _result.Append(comment);
+                AppendLine();
+                AppendIndent();
+            }
+            else if (comment.StartsWith("/*"))
+            {
+                var lines = comment.Split(new[] { '\n', '\r' }, StringSplitOptions.None); // Keep empty entries to preserve structure
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    if (i > 0) AppendIndent(); // Indent subsequent lines of multi-line comment
+                    _result.Append(lines[i].TrimEnd());
+                    if (i < lines.Length - 1) AppendLine(); // Add newline for all but last line of comment block
+                }
+                // Add newline and indent after the block comment if it's not the last token
+                if (_previousToken != null) // Check if it's not the very first token
+                {
+                    AppendLine();
+                    AppendIndent();
+                }
+            }
+        }
+
+        private void AppendLine()
+        {
+            _result.Append("\n");
+        }
+
+        private void AppendIndent()
+        {
+            for (int i = 0; i < _indentLevel; i++)
+            {
+                _result.Append(_options.IndentString);
+            }
+        }
+
+        private void RemoveTrailingSpace()
+        {
+            if (_result.Length > 0 && _result[_result.Length - 1] == ' ')
+            {
+                _result.Length--;
+            }
+        }
+        
+        private void RemoveTrailingIndent()
+        {
+            if (_result.ToString().EndsWith(_options.IndentString))
+            {
+                _result.Length -= _options.IndentString.Length;
+            }
+        }
+
+        private void AppendSpaceIfNeeded(TSQLToken nextToken)
+        {
+            if (nextToken != null && 
+                nextToken.Type != TSQLTokenType.Comma && 
+                nextToken.Type != TSQLTokenType.Semicolon && 
+                nextToken.Type != TSQLTokenType.CloseParenthesis &&
+                nextToken.Type != TSQLTokenType.WhiteSpace) // Don't add space if next is already whitespace
+            {
+                _result.Append(" ");
+            }
+        }
+
+        private void EnsureNewLineAndIndent()
+        {
+            if (_result.Length > 0 && !(_result.ToString().EndsWith("\n") || _result.ToString().EndsWith(_options.IndentString) && _result.ToString().TrimEnd().EndsWith("\n")))
+            {
+                 // If the last char is not a newline, and it's not an indent string preceded by a newline
+                string currentLine = GetCurrentLine();
+                if (!string.IsNullOrWhiteSpace(currentLine) && !currentLine.EndsWith(_options.IndentString))
+                {
+                    AppendLine();
+                }
+            }
+            if (!_result.ToString().EndsWith(_options.IndentString) && _result.ToString().EndsWith("\n"))
+            {
+                 AppendIndent();
+            }
+            else if (_result.Length == 0) // For the very first token
+            {
+                AppendIndent();
+            }
+        }
+
+        private string GetCurrentLine()
+        {
+            if (_result.Length == 0) return string.Empty;
+            int lastNewLine = _result.ToString().LastIndexOf('\n');
+            if (lastNewLine == -1) return _result.ToString();
+            return _result.ToString().Substring(lastNewLine + 1);
+        }
+    }
+}
