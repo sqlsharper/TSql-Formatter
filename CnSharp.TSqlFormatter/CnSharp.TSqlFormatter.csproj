@@ -1,8 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>netstandard2.1</TargetFramework>
-        <Nullable>enable</Nullable>
+        <TargetFramework>netstandard2.0</TargetFramework>
+        <Nullable>disable</Nullable>
         <AssemblyName>CnSharp.TSqlFormatter</AssemblyName>
         <RootNamespace>CnSharp.Sql</RootNamespace>
         <Version>1.0.0-beta1</Version>
@@ -13,6 +13,8 @@
         <PackageTags>T-SQL Formatter</PackageTags>
         <PackageReleaseNotes>init</PackageReleaseNotes>
         <PackageIcon>CnSharp-icon-256x256.png</PackageIcon>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <Description>A simple T-SQL formatter based on T-SQL Parser.</Description>
     </PropertyGroup>
 
     <ItemGroup>
